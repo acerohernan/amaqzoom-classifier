@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-Amaqzoom · Segmentación de clientes (RFM + K-Means + KNN)
-Aplicación de escritorio - ejecutar con:  python app.py
-"""
+"""Amaqzoom · análisis de ventas y clientes."""
 import os
 import queue
 import subprocess
@@ -99,7 +96,7 @@ def kpi(master, valor, titulo, color=ROJO):
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Amaqzoom · Segmentación de clientes (RFM + K-Means + KNN)")
+        self.title("Amaqzoom · Análisis de ventas")
         self.geometry("1280x800")
         self.minsize(1050, 680)
         self.configure(bg=FONDO)
@@ -141,8 +138,9 @@ class App(tk.Tk):
         top.pack(fill="x")
         f1 = ttk.Frame(top)
         f1.pack(fill="x")
-        ttk.Label(f1, text="Segmentación de clientes", style="Titulo.TLabel").pack(side="left", padx=(0, 18))
-        ttk.Button(f1, text="Cargar Excel / CSV…", command=self.cargar_archivo).pack(side="left", padx=3)
+        ttk.Label(f1, text="Análisis de ventas", style="Titulo.TLabel").pack(side="left", padx=(0, 18))
+        ttk.Button(f1, text="Importar ventas (Excel / CSV)…", command=self.cargar_archivo,
+                   style="Accion.TButton").pack(side="left", padx=3)
         ttk.Label(f1, text="Hoja:").pack(side="left", padx=(10, 3))
         self.cb_hoja = ttk.Combobox(f1, state="disabled", width=18)
         self.cb_hoja.pack(side="left")
@@ -154,13 +152,8 @@ class App(tk.Tk):
         f2 = ttk.Frame(top)
         f2.pack(fill="x", pady=(8, 0))
         self.var_anon = tk.BooleanVar(value=True)
-        ttk.Checkbutton(f2, text="Anonimizar id_cliente (SHA-256)", variable=self.var_anon).pack(side="left")
-        ttk.Label(f2, text="Número de grupos (k):").pack(side="left", padx=(18, 3))
-        self.cb_k = ttk.Combobox(f2, state="readonly", width=11,
-                                 values=["Automático"] + [str(k) for k in range(an.K_MIN, an.K_MAX + 1)])
-        self.cb_k.set("Automático")
-        self.cb_k.pack(side="left")
-        self.btn_run = ttk.Button(f2, text="▶  Ejecutar análisis", style="Accion.TButton",
+        ttk.Checkbutton(f2, text="Proteger identificadores al analizar", variable=self.var_anon).pack(side="left")
+        self.btn_run = ttk.Button(f2, text="Analizar mis ventas", style="Accion.TButton",
                                   command=self.ejecutar, state="disabled")
         self.btn_run.pack(side="left", padx=(18, 3))
         self.btn_exp = ttk.Button(f2, text="Exportar resultados…", command=self.exportar, state="disabled")
@@ -171,9 +164,9 @@ class App(tk.Tk):
     def _pestanas(self):
         self.nb = ttk.Notebook(self)
         self.nb.pack(fill="both", expand=True, padx=12, pady=6)
-        nombres = [("datos", "Datos cargados"), ("resumen", "Resumen"), ("k", "Selección de k"),
-                   ("pca", "Segmentos (PCA)"), ("perfil", "Perfil RFM"), ("clientes", "Clientes"),
-                   ("knn", "Clasificador KNN"), ("estac", "Estacionalidad"), ("nuevo", "Cliente nuevo")]
+        nombres = [("resumen", "Resumen del negocio"), ("perfil", "Tipos de clientes"),
+                   ("clientes", "Detalle de clientes"), ("estac", "Temporadas de venta"),
+                   ("datos", "Datos importados")]
         self.tab = {}
         for clave, texto in nombres:
             fr = ttk.Frame(self.nb, padding=8)
@@ -192,9 +185,10 @@ class App(tk.Tk):
         for clave, fr in self.tab.items():
             self._vaciar(fr)
             ttk.Label(fr, style="Sub.TLabel", justify="center", font=(FUENTE, 11),
-                      text=("Cargue un Excel con las columnas  fecha · id_cliente · canal · categoria · monto\n"
-                            "y presione «Ejecutar análisis».\n\n"
-                            "Si solo quiere probar, use «Datos de demostración».")
+                      text=("Importe su archivo de ventas para conocer cuánto vende,\n"
+                            "quiénes son sus clientes y cuándo se concentran las ventas.\n\n"
+                            "Necesita una fila por compra y las columnas fecha, cliente,\n"
+                            "categoría y monto. También puede probar con datos de demostración.")
                       ).place(relx=.5, rely=.45, anchor="center")
 
     # ------------------------------------------------------------ utilidades --
@@ -301,7 +295,7 @@ class App(tk.Tk):
             if clave != "datos":
                 self._vaciar(fr)
                 ttk.Label(fr, style="Sub.TLabel", font=(FUENTE, 11),
-                          text="Presione «Ejecutar análisis» para ver los resultados."
+                          text="Presione «Analizar mis ventas» para ver los resultados."
                           ).place(relx=.5, rely=.45, anchor="center")
         fr = self.tab["datos"]
         self._vaciar(fr)
@@ -311,7 +305,7 @@ class App(tk.Tk):
         t.pack(fill="both", expand=True)
         t.mostrar(df.head(500), indice=False)
         self.nb.select(self.tab["datos"])
-        self._estado("Datos cargados. Presione «Ejecutar análisis».")
+        self._estado("Archivo listo. Presione «Analizar mis ventas».")
 
     def guardar_plantilla(self):
         ruta = filedialog.asksaveasfilename(title="Guardar plantilla", defaultextension=".xlsx",
@@ -331,12 +325,12 @@ class App(tk.Tk):
             "Formato requerido",
             "El Excel (o CSV) debe tener una fila por transacción, con estas columnas:\n\n"
             "  • fecha        → ej. 05/10/2025 (día/mes/año) o fecha de Excel\n"
-            "  • id_cliente   → identificador del cliente (DNI, teléfono, código…)\n"
+            "  • cliente      → identificador del cliente (DNI, teléfono, código…)\n"
             "  • canal        → opcional (tienda, Sodimac, etc.)\n"
             "  • categoria    → ej. Ventiladores, Cocina, Audio\n"
             "  • monto        → número o texto tipo «S/ 1,250.50»\n\n"
             "Los nombres no distinguen mayúsculas ni tildes.\n"
-            "También se aceptan: cliente, importe, total, línea, familia…\n\n"
+            "También se aceptan nombres como id_cliente, importe, total, línea o familia.\n\n"
             "La limpieza (duplicados, nulos, montos con «S/», categorías en mayúsculas) "
             "se hace automáticamente.\n\nSi hay más de 6 categorías, las de menor gasto se agrupan en «Otros».")
 
@@ -344,8 +338,6 @@ class App(tk.Tk):
     def ejecutar(self):
         if self.df_raw is None:
             return
-        k_txt = self.cb_k.get()
-        k_manual = None if k_txt == "Automático" else int(k_txt)
         anon, df = self.var_anon.get(), self.df_raw.copy()
         self._cola = q = queue.Queue()
         self.btn_run.config(state="disabled")
@@ -355,7 +347,7 @@ class App(tk.Tk):
 
         def trabajo():
             try:
-                res = an.ejecutar_analisis(df, anon, k_manual, progreso=lambda m: q.put(("msg", m)))
+                res = an.ejecutar_analisis(df, anon, progreso=lambda m: q.put(("msg", m)))
                 q.put(("ok", res))
             except Exception as e:
                 q.put(("err", e, traceback.format_exc()))
@@ -399,29 +391,29 @@ class App(tk.Tk):
         if r is None:
             return
         self._tab_resumen(r)
-        self._tab_k(r)
-        self._tab_pca(r)
         self._tab_perfil(r)
         self._tab_clientes(r)
-        self._tab_knn(r)
         self._tab_estacionalidad(r)
-        self._tab_nuevo(r)
         self.btn_exp.config(state="normal")
         self.nb.select(self.tab["resumen"])
-        self._estado(f"Análisis completado: {r.resumen['clientes']:,} clientes en {r.k_opt} segmentos.")
+        self._estado(f"Listo: se analizaron {len(r.ventas):,} compras y {r.resumen['clientes']:,} clientes.")
 
     def _tab_resumen(self, r):
         fr = self.tab["resumen"]
         self._vaciar(fr)
         fila = ttk.Frame(fr)
         fila.pack(fill="x", pady=(0, 10))
+        ventas_totales = float(r.ventas["monto"].sum())
+        n_compras = len(r.ventas)
+        ticket_promedio = ventas_totales / n_compras if n_compras else 0
+        clientes_recurrentes = int((r.clientes["frecuencia"] > 1).sum())
+        porcentaje_recurrentes = clientes_recurrentes / len(r.clientes) if len(r.clientes) else 0
         tarjetas = [
-            (f"{r.resumen['clientes']:,}", "clientes analizados", ROJO),
-            (r.k_opt, "segmentos (k) " + ("— automático" if r.k_automatico else "— manual"), ROJO),
-            (f"{r.silhouette:.3f}", "silhouette (más alto = grupos más separados)", AZUL),
-            (f"{r.davies_bouldin:.3f}", "Davies-Bouldin (más bajo = mejor)", AZUL),
-            (f"{r.exactitud:.1%}", f"exactitud KNN (K={r.k_knn})", "#E8A33D"),
-            (f"{r.f1_macro:.3f}", "F1 macro del KNN", "#E8A33D"),
+            (f"S/ {ventas_totales:,.2f}", "ventas registradas", ROJO),
+            (f"{r.resumen['clientes']:,}", "clientes atendidos", AZUL),
+            (f"{n_compras:,}", "compras válidas", "#E8A33D"),
+            (f"S/ {ticket_promedio:,.2f}", "venta promedio por compra", ROJO),
+            (f"{porcentaje_recurrentes:.0%}", "clientes con más de una compra", AZUL),
         ]
         for i, (v, t, c) in enumerate(tarjetas):
             kpi(fila, v, t, c).grid(row=0, column=i, padx=5, sticky="nsew")
@@ -429,171 +421,152 @@ class App(tk.Tk):
 
         cuerpo = ttk.Frame(fr)
         cuerpo.pack(fill="both", expand=True)
-        cuerpo.columnconfigure(0, weight=2)
-        cuerpo.columnconfigure(1, weight=3)
+        cuerpo.columnconfigure(0, weight=3)
+        cuerpo.columnconfigure(1, weight=2)
         cuerpo.rowconfigure(0, weight=1)
 
-        izq = ttk.Frame(cuerpo)
-        izq.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        ttk.Label(izq, text="Informe de limpieza (HU02)", style="Titulo.TLabel").pack(anchor="w")
-        etiquetas = {"registros_iniciales": "Registros iniciales",
-                     "duplicados_eliminados": "Duplicados eliminados",
-                     "nulos_eliminados": "Filas con nulos eliminadas",
-                     "montos_fechas_invalidos": "Montos / fechas inválidos",
-                     "registros_finales": "Registros finales",
-                     "clientes_unicos": "Clientes únicos"}
-        inf = pd.DataFrame({"concepto": [etiquetas[k] for k in r.informe],
-                            "valor": [f"{v:,}" for v in r.informe.values()]})
-        t = TablaDF(izq, altura=7)
-        t.pack(fill="x", pady=(2, 8))
-        t.mostrar(inf, indice=False)
-        nota = ("IDs anonimizados con SHA-256 + sal." if r.anonimizado
-                else "IDs originales conservados (sin anonimizar).")
-        ttk.Label(izq, text=nota, style="Sub.TLabel").pack(anchor="w")
-        ttk.Label(izq, style="Sub.TLabel", wraplength=380, justify="left",
-                  text=f"Categorías usadas: {', '.join(r.categorias)}.").pack(anchor="w", pady=(6, 0))
-
         der = ttk.Frame(cuerpo)
-        der.grid(row=0, column=1, sticky="nsew")
+        der.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
         self._fig_en(der, gf.fig_tamano_segmentos(r))
 
-    def _tab_k(self, r):
-        fr = self.tab["k"]
-        self._vaciar(fr)
-        tx = ("elegido automáticamente por mayor silhouette" if r.k_automatico else "fijado manualmente")
-        ttk.Label(fr, text=f"k = {r.k_opt}  ({tx})", style="Titulo.TLabel").pack(anchor="w")
-        t = TablaDF(fr, altura=7)
-        t.pack(side="bottom", fill="x", pady=(6, 0))
-        t.mostrar(r.tabla_k.round(3), indice=False)
-        self._fig_en(fr, gf.fig_codo_silhouette(r))
+        izq = ttk.Frame(cuerpo)
+        izq.grid(row=0, column=0, sticky="nsew")
+        ttk.Label(izq, text="Lo más importante de tus ventas", style="Titulo.TLabel").pack(anchor="w", pady=(0, 8))
+        periodo = (f"Periodo analizado: {r.ventas['fecha'].min():%d/%m/%Y} – "
+                   f"{r.ventas['fecha'].max():%d/%m/%Y}")
+        filas_descartadas = r.informe["registros_iniciales"] - r.informe["registros_finales"]
+        nota_limpieza = (f"Se revisaron {r.informe['registros_iniciales']:,} filas y se utilizaron "
+                         f"{r.informe['registros_finales']:,} compras válidas. "
+                         f"{filas_descartadas:,} filas incompletas, repetidas o inválidas no se incluyeron.")
+        ttk.Label(izq, text=periodo, style="Sub.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(izq, text=nota_limpieza, style="Sub.TLabel", wraplength=650,
+                  justify="left").pack(anchor="w", pady=(0, 14))
 
-    def _tab_pca(self, r):
-        fr = self.tab["pca"]
-        self._vaciar(fr)
-        self._fig_en(fr, gf.fig_pca(r))
+        por_ventas = r.perfil.assign(ventas_estimadas=r.perfil["clientes"] * r.perfil["monto_medio"])
+        segmento_valor = por_ventas.loc[por_ventas["ventas_estimadas"].idxmax()]
+        segmento_inactivo = r.perfil.loc[r.perfil["recencia_media"].idxmax()]
+        categoria_ventas = r.ventas.groupby("categoria")["monto"].sum().sort_values(ascending=False)
+        categoria_top = categoria_ventas.index[0]
+        participacion = categoria_ventas.iloc[0] / ventas_totales if ventas_totales else 0
+        recomendaciones = [
+            f"Mayor aporte observado: {gf.nombre_cliente(segmento_valor['nombre'])}. "
+            f"Representa {segmento_valor['%_clientes']:.1f}% de tus clientes y genera "
+            f"aprox. S/ {segmento_valor['ventas_estimadas']:,.2f} en ventas registradas.",
+            f"Oportunidad de retorno: {gf.nombre_cliente(segmento_inactivo['nombre'])} "
+            f"lleva en promedio {segmento_inactivo['recencia_media']:.0f} días sin comprar. "
+            "Considera una campaña de reactivación.",
+            f"Categoría con más ventas: {categoria_top} ({participacion:.0%} del total). "
+            "Revisa su disponibilidad y planifica promociones para mantener ese resultado.",
+        ]
+        for texto in recomendaciones:
+            ttk.Label(izq, text="• " + texto, style="Sub.TLabel", wraplength=650,
+                      justify="left").pack(anchor="w", pady=(0, 10))
+        privacidad = ("Los identificadores se protegieron antes de analizar."
+                      if r.anonimizado else
+                      "Los identificadores originales se conservaron durante el análisis.")
+        ttk.Label(izq, text=privacidad, style="Sub.TLabel", wraplength=650,
+                  justify="left").pack(anchor="w", pady=(6, 0))
 
     def _tab_perfil(self, r):
         fr = self.tab["perfil"]
         self._vaciar(fr)
-        t = TablaDF(fr, altura=min(8, len(r.perfil) + 1))
-        t.pack(side="bottom", fill="x", pady=(6, 0))
-        t.mostrar(r.perfil[["nombre", "clientes", "%_clientes", "recencia_media", "frecuencia_media",
-                            "monto_medio"] + r.cols_pct])
+        ttk.Label(fr, text="Conoce los distintos tipos de clientes y qué compran",
+                  style="Titulo.TLabel").pack(anchor="w", pady=(0, 4))
+        ttk.Label(fr, text="Las ventas por cliente corresponden al periodo incluido en el archivo.",
+                  style="Sub.TLabel").pack(anchor="w", pady=(0, 4))
         self._fig_en(fr, gf.fig_perfil(r))
+        tabla = r.perfil[["nombre", "clientes", "%_clientes", "recencia_media",
+                          "frecuencia_media", "monto_medio"] + r.cols_pct].copy()
+        tabla = tabla.rename(columns={
+            "nombre": "Tipo de cliente",
+            "clientes": "N.º de clientes",
+            "%_clientes": "% de clientes",
+            "recencia_media": "Días desde última compra",
+            "frecuencia_media": "Compras por cliente",
+            "monto_medio": "Ventas por cliente (S/)",
+            **{c: f"Gasto en {categoria} (%)" for c, categoria in zip(r.cols_pct, r.categorias)},
+        })
+        tabla["Tipo de cliente"] = tabla["Tipo de cliente"].map(gf.nombre_cliente)
+        tabla["% de clientes"] = tabla["% de clientes"].map(lambda v: f"{v:.1f}%")
+        for categoria in r.categorias:
+            col = f"Gasto en {categoria} (%)"
+            tabla[col] = tabla[col].map(lambda v: f"{v:.0%}")
+        tabla["Ventas por cliente (S/)"] = tabla["Ventas por cliente (S/)"].map(lambda v: f"S/ {v:,.2f}")
+        tabla["Compras por cliente"] = tabla["Compras por cliente"].map(lambda v: f"{v:.1f}")
+        tabla["Días desde última compra"] = tabla["Días desde última compra"].map(lambda v: f"{v:.0f}")
+        t = TablaDF(fr, altura=min(8, len(tabla) + 1))
+        t.pack(side="bottom", fill="x", pady=(6, 0))
+        t.mostrar(tabla, indice=False)
 
     def _tab_clientes(self, r):
         fr = self.tab["clientes"]
         self._vaciar(fr)
+        ttk.Label(fr, text="Consulta las compras y el perfil de cada cliente",
+                  style="Titulo.TLabel").pack(anchor="w", pady=(0, 2))
+        ttk.Label(fr, text="Los importes reflejan las ventas registradas en el periodo analizado.",
+                  style="Sub.TLabel").pack(anchor="w", pady=(0, 6))
         barra = ttk.Frame(fr)
         barra.pack(fill="x", pady=(0, 6))
-        ttk.Label(barra, text="Segmento:").pack(side="left")
-        opciones = ["Todos"] + [f"S{s} · {r.nombres_seg[s]}" for s in sorted(r.nombres_seg)]
-        cb = ttk.Combobox(barra, state="readonly", values=opciones, width=34)
-        cb.set("Todos")
+        ttk.Label(barra, text="Tipo de cliente:").pack(side="left")
+        nombres = sorted(set(r.nombres_seg.values()))
+        opciones = ["Todos"] + [gf.nombre_cliente(nombre) for nombre in nombres]
+        cb = ttk.Combobox(barra, state="readonly", values=opciones, width=38)
+        cb.current(0)
         cb.pack(side="left", padx=6)
         lbl = ttk.Label(barra, style="Sub.TLabel")
         lbl.pack(side="left", padx=10)
         tabla = TablaDF(fr, altura=20)
         tabla.pack(fill="both", expand=True)
 
+        clientes = r.clientes.reset_index().copy()
+        clientes["nombre_segmento"] = clientes["nombre_segmento"].map(gf.nombre_cliente)
+        columnas = ["id_cliente", "nombre_segmento", "recencia", "frecuencia", "monto"] + r.cols_pct
+        nombres_columnas = {
+            "id_cliente": "ID de cliente",
+            "nombre_segmento": "Tipo de cliente",
+            "recencia": "Días desde última compra",
+            "frecuencia": "Compras registradas",
+            "monto": "Ventas registradas (S/)",
+            **{c: f"Gasto en {categoria} (%)" for c, categoria in zip(r.cols_pct, r.categorias)},
+        }
+
         def filtrar(_=None):
-            d = r.clientes
-            if cb.current() > 0:
-                d = d[d["segmento"] == sorted(r.nombres_seg)[cb.current() - 1]]
-            lbl.config(text=f"{len(d):,} clientes (clic en una columna para ordenar)")
-            tabla.mostrar(d.sort_values("monto", ascending=False))
+            nombre = cb.get()
+            datos = clientes if nombre == "Todos" else clientes[clientes["nombre_segmento"] == nombre]
+            lbl.config(text=f"{len(datos):,} clientes · ordenados por ventas")
+            datos = datos.sort_values("monto", ascending=False)[columnas].rename(columns=nombres_columnas)
+            datos["Ventas registradas (S/)"] = datos["Ventas registradas (S/)"].map(
+                lambda v: f"S/ {v:,.2f}")
+            for categoria in r.categorias:
+                col = f"Gasto en {categoria} (%)"
+                datos[col] = datos[col].map(lambda v: f"{v:.0%}")
+            tabla.mostrar(datos, indice=False)
 
         cb.bind("<<ComboboxSelected>>", filtrar)
         filtrar()
 
-    def _tab_knn(self, r):
-        fr = self.tab["knn"]
-        self._vaciar(fr)
-        cv = ", ".join(f"K={k}: {v:.3f}" for k, v in r.cv_knn.items()) or "no aplicable (muestra pequeña)"
-        ttk.Label(fr, style="Titulo.TLabel",
-                  text=f"KNN con K={r.k_knn} · exactitud {r.exactitud:.1%} · F1 macro {r.f1_macro:.3f}"
-                  ).pack(anchor="w")
-        ttk.Label(fr, style="Sub.TLabel", wraplength=1100, justify="left",
-                  text=f"Validación cruzada (exactitud): {cv}").pack(anchor="w", pady=(0, 4))
-        cuerpo = ttk.Frame(fr)
-        cuerpo.pack(fill="both", expand=True)
-        cuerpo.columnconfigure(0, weight=1)
-        cuerpo.columnconfigure(1, weight=1)
-        cuerpo.rowconfigure(0, weight=1)
-        izq = ttk.Frame(cuerpo)
-        izq.grid(row=0, column=0, sticky="nsew")
-        self._fig_en(izq, gf.fig_matriz_confusion(r))
-        der = ttk.Frame(cuerpo)
-        der.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
-        ttk.Label(der, text="Reporte por segmento (muestra de prueba 20 %)").pack(anchor="w")
-        t = TablaDF(der, altura=10)
-        t.pack(fill="x", pady=4)
-        t.mostrar(r.reporte_knn)
-        leyenda = "\n".join(f"S{s}: {r.nombres_seg[s]}" for s in sorted(r.nombres_seg))
-        ttk.Label(der, text=leyenda, style="Sub.TLabel", justify="left").pack(anchor="w", pady=6)
-
     def _tab_estacionalidad(self, r):
         fr = self.tab["estac"]
         self._vaciar(fr)
+        ttk.Label(fr, text="Identifica cuándo preparar tus productos y promociones",
+                  style="Titulo.TLabel").pack(anchor="w", pady=(0, 4))
+        ttk.Label(fr, text="100% representa las ventas mensuales promedio de cada categoría.",
+                  style="Sub.TLabel").pack(anchor="w", pady=(0, 4))
         t = TablaDF(fr, altura=min(8, len(r.calendario) + 1))
         t.pack(side="bottom", fill="x", pady=(6, 0))
-        t.mostrar(r.calendario, indice=False)
-        ttk.Label(fr, text="Calendario de campañas (meses pico por categoría)",
-                  style="Titulo.TLabel").pack(side="bottom", anchor="w", pady=(6, 0))
+        calendario = r.calendario.rename(columns={
+            "categoria": "Categoría",
+            "meses_pico": "Meses con más ventas",
+            "indice_pico": "Ventas vs. promedio",
+            "accion": "Sugerencia",
+        }).copy()
+        calendario["Ventas vs. promedio"] = calendario["Ventas vs. promedio"].map(
+            lambda v: f"{v:.0%} del promedio mensual")
+        calendario["Sugerencia"] = calendario["Sugerencia"].str.replace(
+            "Campaña", "Prepara una campaña", regex=False).str.replace(
+                " y refuerzo de stock", " y refuerza el inventario", regex=False)
+        t.mostrar(calendario, indice=False)
         self._fig_en(fr, gf.fig_estacionalidad(r))
-
-    def _tab_nuevo(self, r):
-        fr = self.tab["nuevo"]
-        self._vaciar(fr)
-        ttk.Label(fr, text="Clasificar un cliente nuevo", style="Titulo.TLabel").pack(anchor="w")
-        ttk.Label(fr, style="Sub.TLabel",
-                  text="Ingrese los datos del cliente; el modelo KNN le asignará un segmento.").pack(anchor="w", pady=(0, 10))
-        form = ttk.Frame(fr)
-        form.pack(anchor="w")
-        vars_ = {}
-
-        def campo(fila, texto, defecto):
-            ttk.Label(form, text=texto).grid(row=fila, column=0, sticky="w", pady=4, padx=(0, 12))
-            v = tk.StringVar(value=str(defecto))
-            ttk.Entry(form, textvariable=v, width=14, justify="right").grid(row=fila, column=1, pady=4)
-            return v
-
-        vars_["rec"] = campo(0, "Recencia (días desde la última compra)", 12)
-        vars_["n"] = campo(1, "Número de compras", 3)
-        gastos = {}
-        defectos = [420, 60]
-        for i, c in enumerate(r.categorias):
-            gastos[c] = campo(2 + i, f"Gasto en {c} (S/)", defectos[i] if i < len(defectos) else 0)
-
-        out = tk.Label(fr, text="", font=(FUENTE, 13, "bold"), fg=ROJO, bg=FONDO, justify="left")
-        det = ttk.Label(fr, text="", style="Sub.TLabel", justify="left")
-
-        def num(v, nombre):
-            try:
-                return float(v.get().replace(",", ".").strip() or 0)
-            except ValueError:
-                raise an.ErrorDatos(f"«{nombre}» debe ser un número.")
-
-        def clasificar():
-            try:
-                rec, n = num(vars_["rec"], "Recencia"), num(vars_["n"], "Número de compras")
-                g = {c: num(v, f"Gasto en {c}") for c, v in gastos.items()}
-                if rec < 0 or any(x < 0 for x in g.values()):
-                    raise an.ErrorDatos("Los valores no pueden ser negativos.")
-                s, nombre, conf = r.clasificar_cliente(rec, n, g)
-            except an.ErrorDatos as e:
-                messagebox.showwarning("Datos incompletos", str(e))
-                return
-            out.config(text=f"Segmento asignado: S{s} · {nombre}   (confianza {conf:.0%})", fg=gf.color_segmento(s))
-            p = r.perfil.loc[s]
-            det.config(text=(f"Monto total del cliente: S/ {sum(g.values()):,.2f}\n\n"
-                             f"Perfil promedio del segmento:  {int(p['clientes']):,} clientes ({p['%_clientes']}%)  ·  "
-                             f"recencia {p['recencia_media']:.0f} días  ·  "
-                             f"frecuencia {p['frecuencia_media']:.1f} compras  ·  monto S/ {p['monto_medio']:,.0f}"))
-
-        ttk.Button(fr, text="Clasificar cliente", style="Accion.TButton", command=clasificar).pack(anchor="w", pady=14)
-        out.pack(anchor="w")
-        det.pack(anchor="w", pady=8)
 
     # ------------------------------------------------------------- exportar --
     def exportar(self):

@@ -287,7 +287,7 @@ def ejecutar_analisis(df_raw: pd.DataFrame, anonimizar: bool = True,
                       k_manual: Optional[int] = None,
                       progreso: Callable[[str], None] = lambda m: None) -> Resultado:
     # 1. Limpieza ---------------------------------------------------------- #
-    progreso("Limpiando y anonimizando datos…")
+    progreso("Preparando y revisando tus ventas…")
     ventas, informe = limpiar(validar_columnas(df_raw), anonimizar)
     if informe["clientes_unicos"] < 10:
         raise ErrorDatos(
@@ -304,7 +304,7 @@ def ejecutar_analisis(df_raw: pd.DataFrame, anonimizar: bool = True,
         categorias = tot.index.tolist()
 
     # 2. RFM + % de gasto por categoría (HU03) ----------------------------- #
-    progreso("Calculando variables RFM…")
+    progreso("Revisando los hábitos de compra de tus clientes…")
     fecha_ref = ventas["fecha"].max() + pd.Timedelta(days=1)
     rfm = ventas.groupby("id_cliente").agg(
         recencia=("fecha", lambda s: (fecha_ref - s.max()).days),
@@ -323,7 +323,7 @@ def ejecutar_analisis(df_raw: pd.DataFrame, anonimizar: bool = True,
     X = scaler.transform(preparar_features(clientes, cols_modelo))
 
     # 3. Selección de k (HU05) --------------------------------------------- #
-    progreso("Evaluando número de grupos (codo + silhouette)…")
+    progreso("Comparando los perfiles de compra…")
     k_max = min(K_MAX, len(clientes) - 1)
     filas_k = []
     for k in range(K_MIN, k_max + 1):
@@ -339,7 +339,7 @@ def ejecutar_analisis(df_raw: pd.DataFrame, anonimizar: bool = True,
         k_opt = int(min(max(k_manual, K_MIN), k_max))
 
     # 4. K-Means y validación (HU04) --------------------------------------- #
-    progreso(f"Segmentando con K-Means (k={k_opt})…")
+    progreso("Organizando los clientes en perfiles de compra…")
     kmeans = KMeans(n_clusters=k_opt, n_init=10, random_state=SEMILLA).fit(X)
     clientes["segmento"] = kmeans.labels_
     sil = float(silhouette_score(X, kmeans.labels_))
@@ -361,7 +361,7 @@ def ejecutar_analisis(df_raw: pd.DataFrame, anonimizar: bool = True,
     var_pca = float(pca.explained_variance_ratio_.sum())
 
     # 5. Clasificación KNN (HU06) ------------------------------------------ #
-    progreso("Entrenando clasificador KNN…")
+    progreso("Preparando información para conocer los perfiles de clientes…")
     y = clientes["segmento"].values
     conteo = np.bincount(y)
     estrat = y if conteo[conteo > 0].min() >= 2 else None
@@ -396,7 +396,7 @@ def ejecutar_analisis(df_raw: pd.DataFrame, anonimizar: bool = True,
     knn = KNeighborsClassifier(n_neighbors=k_knn).fit(X, y)     # modelo final con todos los datos
 
     # 6. Estacionalidad y calendario (HU08) -------------------------------- #
-    progreso("Analizando estacionalidad…")
+    progreso("Identificando las temporadas con más ventas…")
     mes = ventas["fecha"].dt.month
     est = (ventas.assign(mes=mes).pivot_table(index="mes", columns="categoria", values="monto",
                                               aggfunc="sum", fill_value=0)
@@ -413,7 +413,7 @@ def ejecutar_analisis(df_raw: pd.DataFrame, anonimizar: bool = True,
     resumen = dict(clientes=int(len(clientes)), k=k_opt, silhouette=round(sil, 3),
                    davies_bouldin=round(dbi, 3), knn_K=int(k_knn),
                    exactitud=round(exactitud, 3), f1_macro=round(f1m, 3))
-    progreso("Análisis completado.")
+    progreso("Análisis de ventas completado.")
     return Resultado(
         ventas=ventas, informe=informe, categorias=categorias, clientes=clientes,
         cols_pct=cols_pct, cols_modelo=cols_modelo, tabla_k=tabla_k, k_opt=k_opt,
