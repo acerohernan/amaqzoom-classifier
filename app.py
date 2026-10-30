@@ -16,8 +16,8 @@ from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
 import pandas as pd
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends._backend_tk import NavigationToolbar2Tk
 import analisis as an
 import graficos as gf
 
@@ -255,7 +255,10 @@ class App(tk.Tk):
                 except an.ErrorDatos as e:
                     primer_error = primer_error or e
             if df is None:
-                raise primer_error
+                if primer_error is not None:
+                    raise primer_error
+                else:
+                    raise an.ErrorDatos("No se encontró ninguna hoja con las columnas requeridas.")
         except an.ErrorDatos as e:
             messagebox.showerror("Archivo no válido", str(e))
             self._estado("Listo.")
@@ -273,11 +276,11 @@ class App(tk.Tk):
 
     def _leer_hoja(self):
         try:
-            df = an.leer_datos(self.ruta, self.cb_hoja.get())
+            df = an.leer_datos(self.ruta or '', self.cb_hoja.get())
         except an.ErrorDatos as e:
             messagebox.showerror("Hoja no válida", str(e))
             return
-        self._fijar_datos(df, f"{os.path.basename(self.ruta)} · hoja «{self.cb_hoja.get()}»")
+        self._fijar_datos(df, f"{os.path.basename(self.ruta or '')} · hoja «{self.cb_hoja.get()}»")
 
     def cargar_demo(self):
         self.config(cursor="watch")
@@ -363,6 +366,8 @@ class App(tk.Tk):
     def _sondear(self):
         try:
             while True:
+                if self._cola is None:
+                    return
                 m = self._cola.get_nowait()
                 if m[0] == "msg":
                     self._estado(m[1])
@@ -391,6 +396,8 @@ class App(tk.Tk):
     # ------------------------------------------------------------ resultados --
     def _mostrar_resultados(self):
         r = self.res
+        if r is None:
+            return
         self._tab_resumen(r)
         self._tab_k(r)
         self._tab_pca(r)
