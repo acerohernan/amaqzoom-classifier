@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Amaqzoom · análisis de ventas y clientes."""
+import math
 import os
 import queue
 import subprocess
@@ -107,6 +108,9 @@ class App(tk.Tk):
         self.origen = ""
         self.ruta = None
         self._cola = None
+        self.knn_vars = {}
+        self.knn_recencia = None
+        self.knn_compras = None
 
         self._estilos()
         self._barra_superior()
@@ -166,7 +170,7 @@ class App(tk.Tk):
         self.nb.pack(fill="both", expand=True, padx=12, pady=6)
         nombres = [("resumen", "Resumen del negocio"), ("perfil", "Tipos de clientes"),
                    ("clientes", "Detalle de clientes"), ("estac", "Temporadas de venta"),
-                   ("datos", "Datos importados")]
+                   ("datos", "Datos importados"), ("knn", "Clasificar nuevo cliente")]
         self.tab = {}
         for clave, texto in nombres:
             fr = ttk.Frame(self.nb, padding=8)
@@ -185,7 +189,9 @@ class App(tk.Tk):
         for clave, fr in self.tab.items():
             self._vaciar(fr)
             ttk.Label(fr, style="Sub.TLabel", justify="center", font=(FUENTE, 11),
-                      text=("Importe su archivo de ventas para conocer cuánto vende,\n"
+                      text=("Primero analice sus ventas para entrenar el modelo KNN."
+                            if clave == "knn" else
+                            "Importe su archivo de ventas para conocer cuánto vende,\n"
                             "quiénes son sus clientes y cuándo se concentran las ventas.\n\n"
                             "Necesita una fila por compra y las columnas fecha, cliente,\n"
                             "categoría y monto. También puede probar con datos de demostración.")
@@ -297,6 +303,7 @@ class App(tk.Tk):
                 ttk.Label(fr, style="Sub.TLabel", font=(FUENTE, 11),
                           text="Presione «Analizar mis ventas» para ver los resultados."
                           ).place(relx=.5, rely=.45, anchor="center")
+        self._tab_clasificar(None)
         fr = self.tab["datos"]
         self._vaciar(fr)
         ttk.Label(fr, text=f"Vista previa de las primeras 500 filas ({len(df):,} en total)",
@@ -394,6 +401,7 @@ class App(tk.Tk):
         self._tab_perfil(r)
         self._tab_clientes(r)
         self._tab_estacionalidad(r)
+        self._tab_clasificar(r)
         self.btn_exp.config(state="normal")
         self.nb.select(self.tab["resumen"])
         self._estado(f"Listo: se analizaron {len(r.ventas):,} compras y {r.resumen['clientes']:,} clientes.")
@@ -568,6 +576,100 @@ class App(tk.Tk):
         t.mostrar(calendario, indice=False)
         self._fig_en(fr, gf.fig_estacionalidad(r))
 
+    def _tab_clasificar(self, r):
+        fr = self.tab["knn"]
+        self._vaciar(fr)
+        if r is None:
+            ttk.Label(fr, text="Analice primero sus ventas para preparar el modelo KNN.",
+                      style="Sub.TLabel", font=(FUENTE, 11)).place(
+                          relx=.5, rely=.45, anchor="center")
+            return
+
+        ttk.Label(fr, text="Conoce el perfil probable de un cliente nuevo",
+                  style="Titulo.TLabel").pack(anchor="w", pady=(0, 4))
+        ttk.Label(
+            fr, text=("Indique los días desde su última compra, sus compras registradas y "
+                      "cuánto ha gastado por categoría. Los importes deben ser mayores "
+                      "o iguales a cero y sumar más de cero."),
+            style="Sub.TLabel", wraplength=900, justify="left").pack(anchor="w", pady=(0, 12))
+
+        contenido = ttk.Frame(fr)
+        contenido.pack(fill="both", expand=True)
+        formulario = ttk.LabelFrame(contenido, text="Datos del cliente", padding=14)
+        formulario.pack(side="left", fill="y", padx=(0, 14), anchor="n")
+
+        self.knn_recencia = tk.StringVar()
+        self.knn_compras = tk.StringVar()
+        self.knn_vars = {}
+
+        ttk.Label(formulario, text="Días desde la última compra:").grid(
+            row=0, column=0, sticky="w", pady=5)
+        ttk.Entry(formulario, textvariable=self.knn_recencia, width=18).grid(
+            row=0, column=1, sticky="ew", padx=(12, 0), pady=5)
+        ttk.Label(formulario, text="Número de compras:").grid(
+            row=1, column=0, sticky="w", pady=5)
+        ttk.Entry(formulario, textvariable=self.knn_compras, width=18).grid(
+            row=1, column=1, sticky="ew", padx=(12, 0), pady=5)
+
+        ttk.Separator(formulario).grid(row=2, column=0, columnspan=2, sticky="ew", pady=8)
+        ttk.Label(formulario, text="Gasto registrado por categoría (S/):",
+                  style="Titulo.TLabel").grid(row=3, column=0, columnspan=2, sticky="w", pady=(0, 5))
+        for i, categoria in enumerate(r.categorias, start=4):
+            var = tk.StringVar(value="0")
+            self.knn_vars[categoria] = var
+            ttk.Label(formulario, text=f"{categoria}:").grid(row=i, column=0, sticky="w", pady=3)
+            ttk.Entry(formulario, textvariable=var, width=18).grid(
+                row=i, column=1, sticky="ew", padx=(12, 0), pady=3)
+
+        ttk.Button(formulario, text="Clasificar cliente", style="Accion.TButton",
+                   command=self.clasificar_cliente).grid(
+                       row=4 + len(r.categorias), column=0, columnspan=2,
+                       sticky="ew", pady=(12, 0))
+        formulario.columnconfigure(1, weight=1)
+
+        self.knn_resultado = ttk.LabelFrame(contenido, text="Resultado", padding=18)
+        self.knn_resultado.pack(side="left", fill="both", expand=True, anchor="n")
+        self.knn_resultado_texto = ttk.Label(
+            self.knn_resultado,
+            text="Complete los datos y seleccione «Clasificar cliente».",
+            style="Sub.TLabel", justify="left", wraplength=500)
+        self.knn_resultado_texto.pack(anchor="nw")
+
+    def clasificar_cliente(self):
+        if self.res is None or self.knn_recencia is None or self.knn_compras is None:
+            return
+        try:
+            recencia = int(self.knn_recencia.get())
+            compras = int(self.knn_compras.get())
+            gastos = {categoria: float(var.get()) for categoria, var in self.knn_vars.items()}
+        except ValueError:
+            messagebox.showerror(
+                "Datos no válidos",
+                "Ingrese días y compras como números enteros, y los gastos como importes numéricos.")
+            return
+
+        if recencia < 0:
+            messagebox.showerror("Datos no válidos", "Los días desde la última compra no pueden ser negativos.")
+            return
+        if compras < 1:
+            messagebox.showerror("Datos no válidos", "El número de compras debe ser al menos 1.")
+            return
+        if any(not math.isfinite(gasto) or gasto < 0 for gasto in gastos.values()):
+            messagebox.showerror("Datos no válidos", "Los gastos deben ser importes válidos mayores o iguales a cero.")
+            return
+
+        try:
+            _, segmento, confianza = self.res.clasificar_cliente(recencia, compras, gastos)
+        except an.ErrorDatos as e:
+            messagebox.showerror("No se pudo clasificar", str(e))
+            return
+
+        self.knn_resultado_texto.config(
+            text=(f"Perfil probable: {gf.nombre_cliente(segmento)}\n\n"
+                  f"Confianza estimada por el modelo: {confianza:.0%}\n\n"
+                  "La clasificación es una estimación basada en los clientes del periodo analizado."))
+        self._estado(f"Cliente clasificado: {gf.nombre_cliente(segmento)}.")
+
     # ------------------------------------------------------------- exportar --
     def exportar(self):
         if self.res is None:
@@ -604,7 +706,7 @@ class App(tk.Tk):
 
 
 def main():
-    if sys.platform.startswith("win"):       # nitidez en pantallas de alta resolución
+    if sys.platform.startswith("win"):
         try:
             import ctypes
             ctypes.windll.shcore.SetProcessDpiAwareness(1)

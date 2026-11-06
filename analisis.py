@@ -195,7 +195,7 @@ def limpiar(df: pd.DataFrame, anonimizar: bool = True):
     informe["nulos_eliminados"] = n0 - len(df)
 
     df["monto"] = pd.to_numeric(
-        df["monto"].astype(str).str.replace(r"[^\d.\-]", "", regex=True).replace("", np.nan),
+        df["monto"].astype(str).str.replace(r"[^\d.\-]", "", regex=True).replace("", np.nan), # type: ignore
         errors="coerce")
     df["fecha"] = _parsear_fechas(df["fecha"])
     df["categoria"] = (df["categoria"].fillna("Sin categoría").astype(str)
@@ -205,7 +205,7 @@ def limpiar(df: pd.DataFrame, anonimizar: bool = True):
     df = df[df["monto"] > 0]
     informe["montos_fechas_invalidos"] = n1 - len(df)
 
-    if anonimizar:   # hash SHA-256 con sal: el identificador original no se conserva
+    if anonimizar:
         df["id_cliente"] = df["id_cliente"].apply(
             lambda x: hashlib.sha256((SALT + x).encode()).hexdigest()[:12])
     informe["registros_finales"] = len(df)

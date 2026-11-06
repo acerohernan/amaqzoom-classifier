@@ -18,7 +18,9 @@ En Linux, además: `sudo apt install python3-tk`.
 2. Elija la hoja si el libro tiene varias.
 3. Decida si desea proteger los identificadores de clientes durante el análisis.
 4. **Analizar mis ventas** y revise el resumen, los perfiles de clientes y las temporadas.
-5. **Exportar resultados…** guarda un Excel con todas las tablas, los gráficos en PNG,
+5. En **Clasificar nuevo cliente**, ingrese los días desde su última compra, el número de
+   compras y el gasto por categoría para estimar su perfil con KNN.
+6. **Exportar resultados…** guarda un Excel con todas las tablas, los gráficos en PNG,
    el dataset limpio, el resumen JSON y el modelo entrenado (`.joblib`).
 
 ## Formato del Excel
